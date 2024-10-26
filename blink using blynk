@@ -1,0 +1,27 @@
+#define BLYNK_TEMPLATE_ID "TMPL3zUEVX8GH"
+#define BLYNK_TEMPLATE_NAME "control led"
+#define BLYNK_AUTH_TOKEN "rbPFFJ50oQLZMyHM8gU0wShD2PNRJjM7"
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+char auth[] = "rbPFFJ50oQLZMyHM8gU0wShD2PNRJjM7"; // Blynk Auth Token
+char ssid[] = "DESKTOP-S2FOGU5 2276";               // Your WiFi SSID
+char pass[] = "75|pR947";                           // Your WiFi Password
+
+#define LED_PIN D4// External LED pin
+
+void setup() {
+  Blynk.begin(auth, ssid, pass);
+  pinMode(LED_PIN, OUTPUT); // Set the external LED pin as an output
+  digitalWrite(LED_PIN, LOW); // Ensure the LED is off initially
+}
+
+void loop() {
+  Blynk.run(); // Run Blynk
+}
+
+// This function will be called every time the button in the app is pressed
+BLYNK_WRITE(V3) {
+  int ledState = param.asInt(); // Get the state of the button
+  digitalWrite(LED_PIN, ledState); // Set the external LED state based on button press
+}
