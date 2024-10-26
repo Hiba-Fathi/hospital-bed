@@ -1,0 +1,251 @@
+//nodemcu
+#include <Wire.h>
+#include <MPU6050.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+
+// MPU6050 initialization
+MPU6050 mpu;
+
+const char* ssid = "DESKTOP-S2FOGU5 2276";
+const char* password = "75|pR947";
+ESP8266WebServer server(80);
+
+bool startMeasurement = false;  // Flag to indicate when to start measuring
+
+// Gyroscope offsets for calibration
+float gyroXoffset = 0;
+float gyroYoffset = 0;
+float gyroZoffset = 0;
+
+// IP address of ESP32 to send stop command
+const char* esp32_ip = "192.168.4.100"; 
+
+// Simple Kalman filter class
+class Kalman {
+  public:
+    Kalman() : q(0.001), r(0.1), x(0), p(1) {}
+
+    double getAngle(double newAngle, double newRate, double dt) {
+      // Predict
+      p += q;
+      // Update
+      double k = p / (p + r);
+      x += k * (newAngle - x);
+      p *= (1 - k);
+      return x;
+    }
+
+  private:
+    double q; // Process noise covariance
+    double r; // Measurement noise covariance
+    double x; // Angle
+    double p; // Error covariance
+};
+
+Kalman kalmanX;
+Kalman kalmanY;
+IPAddress local_IP(192, 168, 137,98 );
+IPAddress gateway(192, 168, 240, 198);        // Your hotspot's IP
+IPAddress subnet(255, 255, 255, 0);  
+
+void setup() {
+  Serial.begin(115200);
+
+  WiFi.config(IPAddress local_ip, IPAddress gateway, IPAddress subnet)
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Initialize MPU6050
+  Wire.begin();
+  mpu.initialize();
+  if (!mpu.testConnection()) {
+    Serial.println("MPU6050 connection failed!");
+    while (1);
+  }
+
+  // Setup the web server
+  server.on("/", handleRoot);
+  server.on("/startIMU", startIMUMeasurement);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient();
+
+  // If the measurement flag is set, start reading IMU data
+  if (startMeasurement) {
+    int16_t ax, ay, az, gx, gy, gz;
+    double angleX, angleY;
+
+    // Read accelerometer and gyroscope data
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    // Adjust gyroscope values based on calibration offsets
+    gx -= gyroXoffset;
+    gy -= gyroYoffset;
+    gz -= gyroZoffset;
+
+    // Calculate angles using the Kalman filter
+    angleX = kalmanX.getAngle(ax, gx, 0.01);  // Adjust the sample rate if needed
+    angleY = kalmanY.getAngle(ay, gy, 0.01);
+
+    // Output angles to serial monitor
+    Serial.print("Angle X: ");
+    Serial.print(angleX);
+    Serial.print(" | Angle Y: ");
+    Serial.println(angleY);
+    imu_started()
+    // If angle reaches 45 degrees, send stop command to ESP32
+    if (angleX >= 45) {
+      sendStopMotorToESP32();
+      startMeasurement = false;  // Stop measurement
+    }
+
+    delay(100);  // Adjust delay as needed for smooth output
+  }
+}
+
+// Web server root handler
+void handleRoot() {
+  String html = "<html><body>";
+  html += "<h1>IMU Control</h1>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+// Start IMU measurement handler
+void startIMUMeasurement() {
+  startMeasurement = true;  // Set flag to start IMU measurement
+  server.send(200, "text/html", "IMU measurement started");
+}
+
+// Send stop motor command to ESP32
+void sendStopMotorToESP32() {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient wificlient;
+    HTTPClient http;
+    String url = String("http://") + esp32_ip + "/stop"; // Construct the URL
+   
+   
+    http.begin(wificlient,url);  // Use the URL directly
+    int httpCode = http.GET();  // Send stop request to ESP32
+    if (httpCode > 0) {
+      Serial.println("Motor stop command sent to ESP32");
+    } else {
+      Serial.println("Failed to send stop command");
+    }
+    http.end();
+  }
+}
+// Send stop motor command to ESP32
+void imu_started() {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient wificlient;
+    HTTPClient http;
+    String url = String("http://") + esp32_ip + "/imu_started"; // Construct the URL
+   
+   
+    http.begin(wificlient,url);  // Use the URL directly
+    int httpCode = http.GET();  // Send stop request to ESP32
+    if (httpCode > 0) {
+      Serial.println("IMU Started command sent to ESP32");
+    } else {
+      Serial.println("Failed to send stop command");
+    }
+    http.end();
+  }
+}
+//esp32
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+
+const char* ssid = "your_hotspot_SSID";
+const char* password = "your_hotspot_password";
+
+WebServer server(80);
+int motor_pwm_pin = 18;
+int motor_dir_pin = 19;
+
+const char* esp8266_ip = "192.168.X.X"; // IP address of ESP8266
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(motor_pwm_pin, OUTPUT);
+  pinMode(motor_dir_pin, OUTPUT);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Define server routes
+  server.on("/", handleRoot);
+  server.on("/up", handleMotorUp);
+  server.on("/down", handleMotorDown);
+  server.on("/stopMotor", handleStopMotor);
+
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient();
+}
+
+void handleRoot() {
+  String html = "<html><body>";
+  html += "<h1>Motor Control</h1>";
+  html += "<button onclick=\"location.href='/up'\">Motor Up</button><br>";
+  html += "<button onclick=\"location.href='/down'\">Motor Down</button>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleMotorUp() {
+  // Start the motor (set direction and PWM)
+  digitalWrite(motor_dir_pin, HIGH);
+  ledcWrite(0, 255); // Full speed PWM on channel 0
+
+  // Send HTTP request to ESP8266 to start IMU measurement
+  startIMUMeasurement();
+  
+  server.send(200, "text/html", "Motor moving up and IMU measuring started");
+}
+
+void handleMotorDown() {
+  digitalWrite(motor_dir_pin, LOW);
+  ledcWrite(0, 255); // Full speed PWM to move down
+  server.send(200, "text/html", "Motor moving down");
+}
+
+void handleStopMotor() {
+  ledcWrite(0, 0); // Stop the motor
+  server.send(200, "text/html", "Motor stopped");
+}
+
+void startIMUMeasurement() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String url = String("http://") + esp8266_ip + "/startIMU";
+    http.begin(url);
+    int httpCode = http.GET();  // Send request to ESP8266
+    if (httpCode > 0) {
+      Serial.println("IMU start command sent to ESP8266");
+    } else {
+      Serial.println("Failed to send IMU start command");
+    }
+    http.end();
+  }
+}
