@@ -1,0 +1,141 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <EEPROM.h>
+
+MPU6050 mpu;
+int16_t gx, gy, gz;
+int16_t gyroX_offset, gyroY_offset, gyroZ_offset;
+
+// Kalman filter variables
+float kalmanX = 0, kalmanY = 0, kalmanZ = 0;
+float Q_angle = 0.001; // Process noise variance for the accelerometer
+float Q_bias = 0.003;  // Process noise variance for the gyro
+float R_measure = 0.03; // Measurement noise variance
+
+float biasX = 0;
+
+void clearEEPROM() {
+  for (int i = 0; i < 512; i++) {
+    EEPROM.write(i, 0); // Write zero to each byte
+  }
+  EEPROM.commit(); // Make sure to commit changes
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  EEPROM.begin(512); // Initialize EEPROM
+
+  clearEEPROM();
+  Serial.println("EEPROM cleared!");
+
+  mpu.initialize();
+
+  // Load offsets from EEPROM
+  EEPROM.get(0, gyroX_offset);
+  EEPROM.get(4, gyroY_offset);
+  EEPROM.get(8, gyroZ_offset);
+
+  Serial.println("Calibrating Gyroscope... Please keep the MPU-6050 still.");
+  delay(5000);  
+  
+  const int samples = 5000; // Sample size
+  int32_t gx_sum = 0, gy_sum = 0, gz_sum = 0;
+  
+  for (int i = 0; i < samples; i++) {
+    mpu.getRotation(&gx, &gy, &gz);
+    
+    // Apply Kalman filter to the raw readings
+    float filteredX = kalmanFilter(gx, gx, 0.01); // dt can be set to a constant during calibration
+    float filteredY = kalmanFilter(gy, gy, 0.01);
+    float filteredZ = kalmanFilter(gz, gz, 0.01);
+    
+    gx_sum += filteredX;
+    gy_sum += filteredY;
+    gz_sum += filteredZ;
+    delay(5); // Short delay for stability
+  }
+
+  gyroX_offset = gx_sum / samples;
+  gyroY_offset = gy_sum / samples;
+  gyroZ_offset = gz_sum / samples;
+
+  // Save offsets to EEPROM
+  EEPROM.put(0, gyroX_offset);
+  EEPROM.put(4, gyroY_offset);
+  EEPROM.put(8, gyroZ_offset);
+  EEPROM.commit();
+
+  Serial.print("Gyro X Offset: "); Serial.println(gyroX_offset);
+  Serial.print("Gyro Y Offset: "); Serial.println(gyroY_offset);
+  Serial.print("Gyro Z Offset: "); Serial.println(gyroZ_offset);
+  
+  Serial.println("Calibration Complete.");
+}
+
+float kalmanFilter(float angle, float rate, float dt) {
+  // Predict
+  float rateEst = rate - biasX;
+  kalmanX += dt * rateEst;
+
+  // Update
+  float S = R_measure + Q_angle;
+  float K = S / (S + Q_angle);
+  float y = angle - kalmanX;
+  kalmanX += K * y;
+  biasX += Q_bias * y;
+
+  return kalmanX;
+}
+
+void loop() {
+  mpu.getRotation(&gx, &gy, &gz);
+  
+  // Print raw gyro readings
+  Serial.print("Raw Gyro X: "); Serial.print(gx);
+  Serial.print(" | Raw Gyro Y: "); Serial.print(gy);
+  Serial.print(" | Raw Gyro Z: "); Serial.println(gz);
+
+  // Apply the offsets
+  gx -= gyroX_offset;
+  gy -= gyroY_offset;
+  gz -= gyroZ_offset;
+
+  // Calculate the time delta (dt)
+  static unsigned long lastTime = 0;
+  unsigned long currentTime = millis();
+  float dt = (currentTime - lastTime) / 1000.0; // Convert to seconds
+  lastTime = currentTime;
+
+  // Apply Kalman filter to calibrated readings
+  float filteredX = kalmanFilter(gx, gx, dt);
+  float filteredY = kalmanFilter(gy, gy, dt);
+  float filteredZ = kalmanFilter(gz, gz, dt);
+
+  // Print calibrated and filtered gyro readings
+  Serial.print("Calibrated Gyro X: "); Serial.print(filteredX);
+  Serial.print(" | Calibrated Gyro Y: "); Serial.print(filteredY);
+  Serial.print(" | Calibrated Gyro Z: "); Serial.println(filteredZ);
+  
+  delay(100); // Adjust delay as necessary
+}
+
+//EEPROM FLASHER
+#include <EEPROM.h>
+
+void setup() {
+Serial.begin(115200);
+EEPROM.begin(512); // Initialize EEPROM with 512 bytes
+
+// Clear the EEPROM
+for (int i = 0; i < 512; i++) {
+EEPROM.write(i, 0); // Write zero to each byte
+}
+EEPROM.commit(); // Make sure to commit changes
+
+Serial.println("EEPROM cleared!");
+}
+
+void loop() {
+// Nothing needed in loop
+}
