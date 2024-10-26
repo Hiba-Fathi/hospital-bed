@@ -1,0 +1,133 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+// Replace with your network credentials
+const char* ssid = "DESKTOP-S2FOGU5 2276";
+const char* password = "75|pR947";
+
+WebServer server(80);
+
+// Motor control pins
+const int pwmMotor1 = 18; // Motor 1 (Up)
+const int dirMotor1 = 19; // Direction for Motor 1
+const int pwmMotor2 = 21; // Motor 2 (Down)
+const int dirMotor2 = 22; // Direction for Motor 2
+const int pwmMotor3 = 26; // Motor 3 (Side)
+const int dirMotor3 = 25; // Direction for Motor 3
+
+void setup() {
+Serial.begin(115200);
+WiFi.begin(ssid, password);
+
+while (WiFi.status() != WL_CONNECTED) {
+delay(1000);
+Serial.println("Connecting to WiFi...");
+}
+Serial.println("Connected to WiFi");
+Serial.print("IP Address: ");
+Serial.println(WiFi.localIP());
+
+// Define routes
+server.on("/", HTTP_GET, handleRoot);
+server.on("/motor1/up", HTTP_GET, motor1Up);
+server.on("/motor1/down", HTTP_GET, motor1Down);
+server.on("/motor2/up", HTTP_GET, motor2Up);
+server.on("/motor2/down", HTTP_GET, motor2Down);
+server.on("/motor3/right", HTTP_GET, motor3Right);
+server.on("/motor3/left", HTTP_GET, motor3Left);
+server.on("/stop", HTTP_GET, stopMotors);
+
+server.begin();
+Serial.println("HTTP server started");
+
+// Set motor control pins
+pinMode(pwmMotor1, OUTPUT);
+pinMode(dirMotor1, OUTPUT);
+pinMode(pwmMotor2, OUTPUT);
+pinMode(dirMotor2, OUTPUT);
+pinMode(pwmMotor3, OUTPUT);
+pinMode(dirMotor3, OUTPUT);
+}
+
+void handleRoot() {
+String html = "<html><body>";
+html += "<h1>Motor Control</h1>";
+
+// Motor 1 Control
+html += "<h2>Motor 1</h2>";
+html += "<form action='/motor1/up' method='get'><button type='submit'>Up</button></form>";
+html += "<form action='/motor1/down' method='get'><button type='submit'>Down</button></form>";
+
+// Motor 2 Control
+html += "<h2>Motor 2</h2>";
+html += "<form action='/motor2/up' method='get'><button type='submit'>Up</button></form>";
+html += "<form action='/motor2/down' method='get'><button type='submit'>Down</button></form>";
+
+// Motor 3 Control
+html += "<h2>Motor 3</h2>";
+html += "<form action='/motor3/right' method='get'><button type='submit'>Right</button></form>";
+html += "<form action='/motor3/left' method='get'><button type='submit'>Left</button></form>";
+
+// Common Stop Button
+html += "<h2>Stop All Motors</h2>";
+html += "<form action='/stop' method='get'><button type='submit'>Stop</button></form>";
+
+html += "</body></html>";
+
+server.send(200, "text/html", html);
+}
+
+// Motor control functions
+void motor1Up() {
+digitalWrite(dirMotor1, HIGH);
+digitalWrite(pwmMotor1, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 1 Moving Up");
+}
+
+void motor1Down() {
+digitalWrite(dirMotor1, LOW);
+digitalWrite(pwmMotor1, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 1 Moving Down");
+}
+
+void motor2Up() {
+digitalWrite(dirMotor2, HIGH);
+digitalWrite(pwmMotor2, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 2 Moving Up");
+}
+
+void motor2Down() {
+digitalWrite(dirMotor2, LOW);
+digitalWrite(pwmMotor2, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 2 Moving Down");
+}
+
+void motor3Right() {
+digitalWrite(dirMotor3, HIGH);
+digitalWrite(pwmMotor3, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 3 Moving Right");
+}
+
+void motor3Left() {
+digitalWrite(dirMotor3, LOW);
+digitalWrite(pwmMotor3, HIGH);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "Motor 3 Moving Left");
+}
+
+void stopMotors() {
+digitalWrite(pwmMotor1, LOW);
+digitalWrite(pwmMotor2, LOW);
+digitalWrite(pwmMotor3, LOW);
+server.sendHeader("Location", "/");
+server.send(302, "text/plain", "All Motors Stopped");
+}
+
+void loop() {
+server.handleClient();
+}
